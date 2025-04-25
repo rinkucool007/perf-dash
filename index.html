@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance Testing Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.0.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.2.0"></script>
+    <script src="https://unpkg.com/papaparse@latest/papaparse.min.js"></script>
+    <style>
+        .draggable {
+            cursor: move;
+            user-select: none;
+            position: absolute;
+        }
+        .graph-container {
+            transition: all 0.3s ease;
+            border: 1px solid #e2e8f0;
+            background-color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .graph-container:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            bottom: 0;
+            right: 0;
+            background: #4f46e5;
+            cursor: nwse-resize;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Login Screen -->
+    <div id="login-screen" class="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div class="p-8">
+                <div class="flex justify-center mb-8">
+                    <img src="logo.png" alt="Company Logo" class="h-16">
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800 text-center mb-6">Performance Testing Dashboard</h2>
+                <form id="login-form" class="space-y-6">
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-gray-700 mb-1">User ID</label>
+                        <input type="text" id="username" name="username" required 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input type="password" id="password" name="password" required 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <button type="submit" 
+                            class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-150">
+                            Sign In
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+                <div class="flex items-center">
+                    <img src="logo.png" alt="Company Logo" class="h-10 mr-4">
+                    <h1 class="text-xl font-semibold text-gray-900">Performance Testing Dashboard</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="relative">
+                        <input type="date" id="date-selector" class="border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <button id="logout-btn" class="text-gray-600 hover:text-gray-900">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 relative" style="min-height: calc(100vh - 80px);">
+            <div id="graphs-container" class="relative" style="height: 100%;">
+                <!-- Graphs will be dynamically positioned here -->
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Login functionality
+        document.getElementById('login-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (username === 'admin' && password === 'password') {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('dashboard').classList.remove('hidden');
+                initializeDashboard();
+            } else {
+                alert('Invalid credentials. Please try again.');
+            }
+        });
+
+        // Logout functionality
+        document.getElementById('logout-btn').addEventListener('click', function() {
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        });
+
+        // Dashboard initialization
+        async function initializeDashboard() {
+            const dateSelector = document.getElementById('date-selector');
+            const today = new Date();
+            dateSelector.valueAsDate = today;
+
+            // Fetch available dates
+            const availableDates = await fetchAvailableDates();
+            if (availableDates.length === 0) {
+                alert('No data folders found.');
+                return;
+            }
+
+            // Set min and max dates
+            const minDate = new Date(Math.min(...availableDates.map(date => new Date(date))));
+            const maxDate = new Date(Math.max(...availableDates.map(date => new Date(date))));
+            dateSelector.setAttribute('min', minDate.toISOString().split('T')[0]);
+            dateSelector.setAttribute('max', maxDate.toISOString().split('T')[0]);
+
+            // Restrict date picker to available dates
+            dateSelector.addEventListener('input', function() {
+                const selectedDate = this.value;
+                if (!availableDates.includes(selectedDate)) {
+                    this.value = today.toISOString().split('T')[0];
+                    alert('Selected date has no data. Reverting to today.');
+                }
+            });
+
+            // Load data for the current date
+            loadData(today);
+
+            // Date selector change event
+            dateSelector.addEventListener('change', function() {
+                const selectedDate = new Date(this.value);
+                loadData(selectedDate);
+            });
+        }
+
+        // Fetch available data folders
+        async function fetchAvailableDates() {
+            try {
+                const response = await fetch('/api/data-folders');
+                if (!response.ok) throw new Error('Failed to fetch data folders');
+                const folders = await response.json();
+                // Convert MM-DD-YYYY to YYYY-MM-DD for date input
+                return folders.map(folder => {
+                    const [month, day, year] = folder.split('-');
+                    return `${year}-${month}-${day}`;
+                });
+            } catch (err) {
+                console.error('Error fetching available dates:', err);
+                return [];
+            }
+        }
+
+        // Load CSV data
+        async function loadData(date) {
+            const formattedDate = date.toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+            }).replace(/\//g, '-');
+            const csvUrl = `/api/data/${formattedDate}/results.csv`;
+
+            try {
+                const response = await fetch(csvUrl);
+                if (!response.ok) throw new Error('CSV file not found');
+                const csvText = await response.text();
+
+                Papa.parse(csvText, {
+                    header: true,
+                    skipEmptyLines: true,
+                    dynamicTyping: false,
+                    transformHeader: header => header.trim().replace(/^"|"$/g, ''),
+                    transform: (value, header) => {
+                        let cleaned = value.trim().replace(/^"|"$/g, '');
+                        if (header === 'timeStamp') {
+                            return new Date(parseInt(cleaned)).toLocaleString('en-US', { timeZone: 'America/New_York' });
+                        }
+                        if (['elapsed', 'bytes', 'sentBytes', 'grpThreads', 'allThreads', 'Latency', 'IdleTime', 'Connect'].includes(header)) {
+                            return parseInt(cleaned) || 0;
+                        }
+                        if (header === 'success') {
+                            return cleaned.toLowerCase() === 'true';
+                        }
+                        return cleaned;
+                    },
+                    complete: results => {
+                        if (results.data.length === 0) {
+                            alert('No data found in CSV file.');
+                            return;
+                        }
+                        createGraphs(results.data);
+                    },
+                    error: err => {
+                        console.error('Error parsing CSV:', err);
+                        alert('Failed to parse CSV data.');
+                    }
+                });
+            } catch (err) {
+                console.error('Error loading CSV:', err);
+                alert('Failed to load data for the selected date.');
+            }
+        }
+
+        // Create all graphs
+        function createGraphs(csvData) {
+            const container = document.getElementById('graphs-container');
+            container.innerHTML = '';
+            
+            const positions = [
+                { top: 20, left: 20, width: 500, height: 300 }, // Line Graph
+                { top: 20, left: 540, width: 500, height: 300 }, // Area Graph
+                { top: 20, left: 1060, width: 500, height: 300 }, // Bar Chart
+                { top: 340, left: 20, width: 500, height: 300 }, // Histogram
+                { top: 340, left: 540, width: 500, height: 300 }, // Pie Chart
+                { top: 340, left: 1060, width: 500, height: 300 }  // Heatmap
+            ];
+            
+            createLineGraph(positions[0], csvData);
+            createAreaGraph(positions[1], csvData);
+            createBarChart(positions[2], csvData);
+            createHistogram(positions[3], csvData);
+            createPieChart(positions[4], csvData);
+            createHeatmap(positions[5], csvData);
+        }
+
+        // Helper function to create a draggable/resizable graph container
+        function createGraphContainer(position, title) {
+            const container = document.getElementById('graphs-container');
+            const graphContainer = document.createElement('div');
+            graphContainer.className = 'graph-container draggable rounded-lg bg-white';
+            graphContainer.style.top = `${position.top}px`;
+            graphContainer.style.left = `${position.left}px`;
+            graphContainer.style.width = `${position.width}px`;
+            graphContainer.style.height = `${position.height}px`;
+            
+            const header = document.createElement('div');
+            header.className = 'px-4 py-2 border-b border-gray-200 bg-gray-50 rounded-t-lg flex justify-between items-center';
+            header.innerHTML = `
+                <h3 class="font-medium text-gray-700">${title}</h3>
+                <div class="flex space-x-2">
+                    <button class="text-gray-500 hover:text-gray-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                        </svg>
+                    </button>
+                </div>
+            `;
+            
+            const canvasContainer = document.createElement('div');
+            canvasContainer.className = 'p-2 relative';
+            canvasContainer.style.height = `calc(100% - 40px)`;
+            
+            const canvas = document.createElement('canvas');
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+            
+            const resizeHandle = document.createElement('div');
+            resizeHandle.className = 'resize-handle';
+            
+            canvasContainer.appendChild(canvas);
+            graphContainer.appendChild(header);
+            graphContainer.appendChild(canvasContainer);
+            graphContainer.appendChild(resizeHandle);
+            container.appendChild(graphContainer);
+            
+            makeDraggable(graphContainer, header);
+            makeResizable(graphContainer, resizeHandle);
+            
+            return canvas;
+        }
+
+        // Draggable functionality
+        function makeDraggable(element, handle) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            handle.onmousedown = dragMouseDown;
+            function dragMouseDown(e) {
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                element.style.top = (element.offsetTop - pos2) + "px";
+                element.style.left = (element.offsetLeft - pos1) + "px";
+            }
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
+        // Resizable functionality
+        function makeResizable(element, handle) {
+            let startX, startY, startWidth, startHeight;
+            handle.onmousedown = initResize;
+            function initResize(e) {
+                e.preventDefault();
+                startX = e.clientX;
+                startY = e.clientY;
+                startWidth = parseInt(document.defaultView.getComputedStyle(element).width, 10);
+                startHeight = parseInt(document.defaultView.getComputedStyle(element).height, 10);
+                document.onmousemove = resize;
+                document.onmouseup = stopResize;
+            }
+            function resize(e) {
+                const width = startWidth + e.clientX - startX;
+                const height = startHeight + e.clientY - startY;
+                if (width > 300) element.style.width = width + 'px';
+                if (height > 200) element.style.height = height + 'px';
+                const canvas = element.querySelector('canvas');
+                if (canvas && canvas.chart) {
+                    canvas.chart.resize();
+                }
+            }
+            function stopResize() {
+                document.onmousemove = null;
+                document.onmouseup = null;
+            }
+        }
+
+        // Create Line Graph (Response Time Over Time)
+        function createLineGraph(position, csvData) {
+            const canvas = createGraphContainer(position, 'Response Time Over Time');
+            const ctx = canvas.getContext('2d');
+            const labels = csvData.map(item => item.timeStamp);
+            const responseTimes = csvData.map(item => item.elapsed);
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Response Time (ms)',
+                        data: responseTimes,
+                        borderColor: 'rgb(79, 70, 229)',
+                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }, pan: { enabled: true, mode: 'xy' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        x: { title: { display: true, text: 'Time (EST)' }, type: 'time', time: { unit: 'second' } },
+                        y: { title: { display: true, text: 'Response Time (ms)' }, min: 0 }
+                    }
+                }
+            });
+            canvas.chart = chart;
+        }
+
+        // Create Area Graph (Throughput Over Time)
+        function createAreaGraph(position, csvData) {
+            const canvas = createGraphContainer(position, 'Throughput Over Time');
+            const ctx = canvas.getContext('2d');
+            const timeWindows = [];
+            const counts = [];
+            let startTime = new Date(csvData[0].timeStamp).getTime();
+            let windowSize = 1000;
+            let currentCount = 0;
+            let currentWindow = startTime;
+            csvData.forEach(item => {
+                const time = new Date(item.timeStamp).getTime();
+                if (time < currentWindow + windowSize) {
+                    currentCount++;
+                } else {
+                    timeWindows.push(new Date(currentWindow));
+                    counts.push(currentCount);
+                    currentCount = 1;
+                    currentWindow = time;
+                }
+            });
+            timeWindows.push(new Date(currentWindow));
+            counts.push(currentCount);
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timeWindows,
+                    datasets: [{
+                        label: 'Throughput (requests/sec)',
+                        data: counts,
+                        borderColor: 'rgb(16, 185, 129)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }, pan: { enabled: true, mode: 'xy' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        x: { title: { display: true, text: 'Time (EST)' }, type: 'time', time: { unit: 'second' } },
+                        y: { title: { display: true, text: 'Throughput (requests/sec)' }, min: 0 }
+                    }
+                }
+            });
+            canvas.chart = chart;
+        }
+
+        // Create Bar Chart (Aggregate Report Metrics)
+        function createBarChart(position, csvData) {
+            const canvas = createGraphContainer(position, 'Aggregate Report Metrics');
+            const ctx = canvas.getContext('2d');
+            const labels = [...new Set(csvData.map(item => item.label))];
+            const avgResponseTime = labels.map(label => {
+                const items = csvData.filter(item => item.label === label);
+                return items.reduce((sum, item) => sum + item.elapsed, 0) / items.length;
+            });
+            const chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Average Response Time (ms)',
+                        data: avgResponseTime,
+                        backgroundColor: 'rgba(99, 102, 241, 0.6)',
+                        borderColor: 'rgba(99, 102, 241, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }, pan: { enabled: true, mode: 'xy' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        x: { title: { display: true, text: 'Endpoint' } },
+                        y: { title: { display: true, text: 'Response Time (ms)' }, min: 0 }
+                    }
+                }
+            });
+            canvas.chart = chart;
+        }
+
+        // Create Histogram (Response Time Distribution)
+        function createHistogram(position, csvData) {
+            const canvas = createGraphContainer(position, 'Response Time Distribution');
+            const ctx = canvas.getContext('2d');
+            const responseTimes = csvData.map(item => item.elapsed);
+            const maxTime = Math.max(...responseTimes);
+            const bucketSize = Math.ceil(maxTime / 5);
+            const buckets = Array.from({length: 5}, (_, i) => `${i * bucketSize}-${(i + 1) * bucketSize}`);
+            const counts = Array(5).fill(0);
+            responseTimes.forEach(time => {
+                const bucketIndex = Math.min(Math.floor(time / bucketSize), 4);
+                counts[bucketIndex]++;
+            });
+            const chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: buckets,
+                    datasets: [{
+                        label: 'Number of Requests',
+                        data: counts,
+                        backgroundColor: 'rgba(245, 158, 11, 0.6)',
+                        borderColor: 'rgba(245, 158, 11, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }, pan: { enabled: true, mode: 'xy' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        x: { title: { display: true, text: 'Response Time Range (ms)' } },
+                        y: { title: { display: true, text: 'Number of Requests' }, min: 0 }
+                    }
+                }
+            });
+            canvas.chart = chart;
+        }
+
+        // Create Pie Chart (Error Distribution)
+        function createPieChart(position, csvData) {
+            const canvas = createGraphContainer(position, 'Error Distribution');
+            const ctx = canvas.getContext('2d');
+            const errorData = csvData.reduce((acc, item) => {
+                const key = `${item.responseCode} ${item.responseMessage}`;
+                acc[key] = (acc[key] || 0) + 1;
+                return acc;
+            }, {});
+            const chart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(errorData),
+                    datasets: [{
+                        data: Object.values(errorData),
+                        backgroundColor: ['rgba(16, 185, 129, 0.6)', 'rgba(245, 158, 11, 0.6)', 'rgba(239, 68, 68, 0.6)'],
+                        borderColor: ['rgba(16, 185, 129, 1)', 'rgba(245, 158, 11, 1)', 'rgba(239, 68, 68, 1)'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }, pan: { enabled: true, mode: 'xy' } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((value / total) * 100);
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        },
+                        legend: { position: 'right' }
+                    }
+                }
+            });
+            canvas.chart = chart;
+        }
+
+        // Create Heatmap (Response Time vs. Load)
+        function createHeatmap(position, csvData) {
+            const canvas = createGraphContainer(position, 'Response Time vs. Load');
+            const ctx = canvas.getContext('2d');
+            const labels = ['Low Load', 'Medium Load', 'High Load'];
+            const responseTimes = ['Fast (<100ms)', 'Medium (100-300ms)', 'Slow (>300ms)'];
+            const dataMatrix = Array(labels.length).fill().map(() => Array(responseTimes.length).fill(0));
+            csvData.forEach(item => {
+                const rt = item.elapsed;
+                const rtIndex = rt < 100 ? 0 : rt < 300 ? 1 : 2;
+                const loadIndex = item.allThreads < 2 ? 0 : item.allThreads < 5 ? 1 : 2;
+                dataMatrix[loadIndex][rtIndex]++;
+            });
+            const data = {
+                labels: responseTimes,
+                datasets: labels.map((label, i) => ({
+                    label: label,
+                    data: dataMatrix[i],
+                    backgroundColor: `rgba(${50 + i * 70}, ${150 - i * 50}, ${200 - i * 30}, 0.6)`
+                }))
+            };
+            const chart = new Chart(ctx, {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        zoom: { zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }, pan: { enabled: true, mode: 'xy' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        x: { stacked: true, title: { display: true, text: 'Response Time' } },
+                        y: { stacked: true, title: { display: true, text: 'Number of Requests' }, min: 0 }
+                    }
+                }
+            });
+            canvas.chart = chart;
+        }
+    </script>
+</body>
+</html>
