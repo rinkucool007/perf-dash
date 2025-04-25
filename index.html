@@ -37,6 +37,32 @@
         input[type="date"]::-webkit-calendar-picker-indicator {
             cursor: pointer;
         }
+        #chat-window {
+            transition: all 0.3s ease;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .chat-message {
+            max-width: 80%;
+            margin: 8px;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .user-message {
+            background-color: #3b82f6;
+            color: white;
+            margin-left: auto;
+        }
+        .bot-message {
+            background-color: #e5e7eb;
+            color: #111827;
+        }
+        #chatbot-logo {
+            transition: transform 0.2s ease;
+        }
+        #chatbot-logo:hover {
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -45,7 +71,7 @@
         <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div class="p-8">
                 <div class="flex justify-center mb-8">
-                    <img src="logo.png" alt="Company Logo" class="h-16">
+                    <img src="/public/logo.png" alt="Company Logo" class="h-16">
                 </div>
                 <h2 class="text-2xl font-bold text-gray-800 text-center mb-6">Performance Testing Dashboard</h2>
                 <form id="login-form" class="space-y-6">
@@ -76,7 +102,7 @@
         <header class="bg-white shadow-sm">
             <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
                 <div class="flex items-center">
-                    <img src="logo.png" alt="Company Logo" class="h-10 mr-4">
+                    <img src="/public/logo.png" alt="Company Logo" class="h-10 mr-4">
                     <h1 class="text-xl font-semibold text-gray-900">Performance Testing Dashboard</h1>
                 </div>
                 <div class="flex items-center space-x-4">
@@ -100,6 +126,36 @@
         </main>
     </div>
 
+    <!-- Chatbot Logo -->
+    <img id="chatbot-logo" src="/public/chatbot_logo.png" alt="Chatbot Logo" 
+         class="fixed bottom-4 right-4 w-12 h-12 cursor-pointer z-50 hidden">
+
+    <!-- Chat Window -->
+    <div id="chat-window" class="hidden fixed bottom-20 right-4 w-80 bg-white rounded-lg shadow-xl z-50 flex flex-col">
+        <!-- Chat Header -->
+        <div class="bg-blue-600 text-white p-3 rounded-t-lg flex justify-between items-center">
+            <h3 class="font-semibold">Performance Chatbot</h3>
+            <button id="close-chat" class="text-white hover:text-gray-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <!-- Date Selector -->
+        <div class="p-3 border-b border-gray-200">
+            <label for="chat-date-selector" class="block text-sm font-medium text-gray-700 mb-1">Select Date</label>
+            <input type="date" id="chat-date-selector" 
+                   class="w-full border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <!-- Chat Messages -->
+        <div id="chat-messages" class="flex-1 p-3 overflow-y-auto"></div>
+        <!-- Chat Input -->
+        <div class="p-3 border-t border-gray-200">
+            <input type="text" id="chat-input" placeholder="Ask about performance data..." 
+                   class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+    </div>
+
     <script>
         // Login functionality
         document.getElementById('login-form').addEventListener('submit', function(e) {
@@ -110,6 +166,7 @@
             if (username === 'admin' && password === 'password') {
                 document.getElementById('login-screen').classList.add('hidden');
                 document.getElementById('dashboard').classList.remove('hidden');
+                document.getElementById('chatbot-logo').classList.remove('hidden');
                 initializeDashboard();
             } else {
                 alert('Invalid credentials. Please try again.');
@@ -120,8 +177,31 @@
         document.getElementById('logout-btn').addEventListener('click', function() {
             document.getElementById('login-screen').classList.remove('hidden');
             document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('chatbot-logo').classList.add('hidden');
+            document.getElementById('chat-window').classList.add('hidden');
             document.getElementById('username').value = '';
             document.getElementById('password').value = '';
+        });
+
+        // Chatbot elements
+        const chatbotLogo = document.getElementById('chatbot-logo');
+        const chatWindow = document.getElementById('chat-window');
+        const closeChatBtn = document.getElementById('close-chat');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const chatDateSelector = document.getElementById('chat-date-selector');
+        let availableDates = [];
+
+        // Toggle chat window
+        chatbotLogo.addEventListener('click', () => {
+            chatWindow.classList.toggle('hidden');
+            if (!chatWindow.classList.contains('hidden')) {
+                initializeChat();
+            }
+        });
+
+        closeChatBtn.addEventListener('click', () => {
+            chatWindow.classList.add('hidden');
         });
 
         // Dashboard initialization
@@ -131,7 +211,7 @@
             dateSelector.valueAsDate = today;
 
             // Fetch available dates
-            const availableDates = await fetchAvailableDates();
+            availableDates = await fetchAvailableDates();
             if (availableDates.length === 0) {
                 alert('No data folders found.');
                 return;
@@ -142,13 +222,33 @@
             const maxDate = new Date(Math.max(...availableDates.map(date => new Date(date))));
             dateSelector.setAttribute('min', minDate.toISOString().split('T')[0]);
             dateSelector.setAttribute('max', maxDate.toISOString().split('T')[0]);
+            chatDateSelector.setAttribute('min', minDate.toISOString().split('T')[0]);
+            chatDateSelector.setAttribute('max', maxDate.toISOString().split('T')[0]);
 
-            // Restrict date picker to available dates
+            // Sync chat date selector with dashboard
+            chatDateSelector.value = dateSelector.value;
+
+            // Restrict dashboard date picker
             dateSelector.addEventListener('input', function() {
                 const selectedDate = this.value;
                 if (!availableDates.includes(selectedDate)) {
                     this.value = today.toISOString().split('T')[0];
+                    chatDateSelector.value = this.value;
                     alert('Selected date has no data. Reverting to today.');
+                } else {
+                    chatDateSelector.value = selectedDate;
+                }
+            });
+
+            // Restrict chat date picker
+            chatDateSelector.addEventListener('input', function() {
+                const selectedDate = this.value;
+                if (!availableDates.includes(selectedDate)) {
+                    this.value = dateSelector.value;
+                    addBotMessage('Selected date has no data. Reverting to dashboard date.');
+                } else {
+                    dateSelector.value = selectedDate;
+                    loadData(new Date(selectedDate));
                 }
             });
 
@@ -162,13 +262,28 @@
             });
         }
 
-        // Fetch available data folders
+        // Initialize chat
+        function initializeChat() {
+            // Send message on Enter key
+            chatInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && this.value.trim()) {
+                    sendMessage(this.value.trim());
+                    this.value = '';
+                }
+            });
+
+            // Welcome message
+            const dateStr = chatDateSelector.value.split('-').join('/');
+            addBotMessage(`Hello! I can answer questions about performance data for ${dateStr}. Try asking about average response time, total requests, errors, or throughput.`);
+        }
+
+        // Fetch available dates
         async function fetchAvailableDates() {
             try {
                 const response = await fetch('/api/data-folders');
                 if (!response.ok) throw new Error('Failed to fetch data folders');
                 const folders = await response.json();
-                // Convert MM-DD-YYYY to YYYY-MM-DD for date input
+                // Convert MM-DD-YYYY to YYYY-MM-DD
                 return folders.map(folder => {
                     const [month, day, year] = folder.split('-');
                     return `${year}-${month}-${day}`;
@@ -227,6 +342,55 @@
                 console.error('Error loading CSV:', err);
                 alert('Failed to load data for the selected date.');
             }
+        }
+
+        // Send message to server
+        async function sendMessage(message) {
+            addUserMessage(message);
+            const date = formatDateForApi(new Date(chatDateSelector.value));
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message, date })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    addBotMessage(`Error: ${data.error}`);
+                } else {
+                    addBotMessage(data.response);
+                }
+            } catch (err) {
+                addBotMessage('Sorry, something went wrong. Please try again.');
+                console.error('Error sending message:', err);
+            }
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Add user message
+        function addUserMessage(message) {
+            const div = document.createElement('div');
+            div.className = 'chat-message user-message';
+            div.textContent = message;
+            chatMessages.appendChild(div);
+        }
+
+        // Add bot message
+        function addBotMessage(message) {
+            const div = document.createElement('div');
+            div.className = 'chat-message bot-message';
+            div.textContent = message;
+            chatMessages.appendChild(div);
+        }
+
+        // Format date for API (MM-DD-YYYY)
+        function formatDateForApi(date) {
+            return date.toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+            }).replace(/\//g, '-');
         }
 
         // Create all graphs
