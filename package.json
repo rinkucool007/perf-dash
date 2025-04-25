@@ -1,12 +1,13 @@
 {
-    "name": "performance-dashboard",
+    "name": "performance-chatbot",
     "version": "1.0.0",
-    "description": "Performance Testing Dashboard",
+    "description": "Performance Testing Chatbot",
     "main": "server.js",
     "scripts": {
         "start": "node server.js"
     },
     "dependencies": {
-        "express": "^4.18.2"
+        "express": "^4.18.2",
+        "papaparse": "^5.4.1"
     }
 }
